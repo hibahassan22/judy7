@@ -1,5 +1,157 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+
+const API_BASE = "/api";
+
+// ── Map Picker Modal (OpenStreetMap + Leaflet via CDN) ─────────────
+function MapPickerModal({ title, onClose, onConfirm }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+  const [ready, setReady] = useState(false);
+
+  // Load Leaflet CSS + JS from CDN
+  useEffect(() => {
+    // CSS
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+    // JS
+    if (window.L) { setReady(true); return; }
+    if (document.getElementById("leaflet-js")) {
+      document.getElementById("leaflet-js").addEventListener("load", () => setReady(true));
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "leaflet-js";
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => setReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Init map after Leaflet loads
+  useEffect(() => {
+    if (!ready || !mapRef.current || mapInstanceRef.current) return;
+
+    const L = window.L;
+    const map = L.map(mapRef.current).setView([24.7136, 46.6753], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
+    }).addTo(map);
+
+    map.on("click", (e) => {
+      const { lat, lng } = e.latlng;
+      const pos = { lat, lng };
+      setSelected(pos);
+      if (markerRef.current) markerRef.current.remove();
+      markerRef.current = L.marker([lat, lng]).addTo(map);
+    });
+
+    mapInstanceRef.current = map;
+
+    // Fix Leaflet tile size after modal renders
+    setTimeout(() => map.invalidateSize(), 100);
+  }, [ready]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Search using Nominatim (OpenStreetMap geocoding - free)
+  const handleSearch = async () => {
+    if (!search.trim() || !mapInstanceRef.current) return;
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(search)}&format=json&limit=1`,
+        { headers: { "Accept-Language": "ar" } }
+      );
+      const data = await res.json();
+      if (data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        const pos = { lat, lng };
+        mapInstanceRef.current.setView([lat, lng], 15);
+        setSelected(pos);
+        if (markerRef.current) markerRef.current.remove();
+        markerRef.current = window.L.marker([lat, lng]).addTo(mapInstanceRef.current);
+      }
+    } catch {}
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ height: "80vh" }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <p className="text-sm font-bold text-gray-800">{title}</p>
+        </div>
+
+        {/* Search */}
+        <div className="flex gap-2 px-4 py-3 border-b border-gray-100">
+          <button
+            onClick={handleSearch}
+            className="px-3 py-2 bg-[#c9a84c] text-white text-xs rounded-xl hover:bg-[#b8973d] transition-colors shrink-0"
+          >
+            بحث
+          </button>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSearch()}
+            placeholder="ابحث عن موقع... مثال: الرياض"
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#c9a84c] text-right"
+          />
+        </div>
+
+        {/* Map */}
+        <div className="flex-1 relative">
+          {!ready && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-gray-400 text-sm gap-2 z-10">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              جاري تحميل الخريطة...
+            </div>
+          )}
+          <div ref={mapRef} className="w-full h-full" />
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-3 border-t border-gray-100">
+          <p className="text-xs text-gray-400 text-center mb-2">اضغط على الخريطة لتحديد الموقع</p>
+          <button
+            onClick={() => selected && onConfirm(selected)}
+            disabled={!selected}
+            className="w-full py-2.5 bg-[#4a4644] text-white text-sm font-semibold rounded-xl hover:bg-black transition-colors disabled:opacity-40"
+          >
+            {selected
+              ? `تأكيد الموقع (${selected.lat.toFixed(4)}, ${selected.lng.toFixed(4)})`
+              : "اختر موقعاً على الخريطة أولاً"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Shared primitives ──────────────────────────────────────────────
 const Pill = ({ label, active, onClick }) => (
@@ -572,6 +724,72 @@ export default function NewTripFormPage() {
   const [price,       setPrice]       = useState("");
   const [notes,       setNotes]       = useState("");
 
+  // ── Sales ──────────────────────────────────────────────────────
+  const [salesList,   setSalesList]   = useState([]);
+  const [selectedSales, setSelectedSales] = useState([]);
+  const toggleSale = (id) => setSelectedSales(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/sales`)
+      .then(r => r.json())
+      .then(json => setSalesList(Array.isArray(json) ? json : json.value ?? []))
+      .catch(() => {});
+  }, []);
+
+  // ── Map picker ─────────────────────────────────────────────────
+  const [mapTarget, setMapTarget] = useState(null); // "from" | "to"
+  const [fromCoords, setFromCoords] = useState(null); // { lat, lng }
+  const [toCoords,   setToCoords]   = useState(null);
+  const [fromLabel,  setFromLabel]  = useState("");
+  const [toLabel,    setToLabel]    = useState("");
+
+  const handleMapConfirm = (coords) => {
+    if (mapTarget === "from") {
+      setFromCoords(coords);
+      setFromLabel(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+    } else {
+      setToCoords(coords);
+      setToLabel(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+    }
+    setMapTarget(null);
+  };
+
+  // ── Submit ─────────────────────────────────────────────────────
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const formData = new FormData();
+      formData.append("trip_date", dateFrom || new Date().toISOString().split("T")[0]);
+      formData.append("customer_phone", clientPhone);
+      formData.append("total_price", price || 0);
+      formData.append("trip_type", tripCard);
+      formData.append("trip_days_count", activeDays.length);
+      if (fromCoords) formData.append("from", `${fromCoords.lat},${fromCoords.lng}`);
+      if (toCoords)   formData.append("to",   `${toCoords.lat},${toCoords.lng}`);
+      selectedSales.forEach((id, i) => formData.append(`sales_ids[${i}]`, id));
+
+      const res = await fetch(`${API_BASE}/trips`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = json?.message || json?.error || `خطأ ${res.status}`;
+        throw new Error(msg);
+      }
+      navigate("/trips");
+    } catch (err) {
+      setSubmitError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const tripCards = [
     { id: "subscription", label: "رحلات اشتراك",  icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
     { id: "daily",        label: "رحلات يومية",   icon: "M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" },
@@ -669,7 +887,31 @@ export default function NewTripFormPage() {
       {!isGroupMulti && routeContent && (
         <Section title="مسار الرحلة" sub="حد نقطة الانطلاق والوصول بسهولة"
           icon={<svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /></svg>}>
-          {routeContent}
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 text-right">🔁 نقطة الانطلاق والنهاية</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="نقطة الوصول *">
+                <button
+                  type="button"
+                  onClick={() => setMapTarget("to")}
+                  className={`w-full rounded-xl border px-3 py-2.5 text-sm text-right flex items-center justify-between transition-colors ${toCoords ? "border-[#c9a84c] bg-amber-50 text-gray-800" : "border-gray-200 bg-white text-gray-400 hover:border-[#c9a84c]"}`}
+                >
+                  <svg className="w-4 h-4 text-[#c9a84c] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /></svg>
+                  <span className="flex-1 text-right mr-2 truncate text-xs">{toLabel || "اختر من الخريطة"}</span>
+                </button>
+              </Field>
+              <Field label="نقطة الانطلاق *">
+                <button
+                  type="button"
+                  onClick={() => setMapTarget("from")}
+                  className={`w-full rounded-xl border px-3 py-2.5 text-sm text-right flex items-center justify-between transition-colors ${fromCoords ? "border-[#c9a84c] bg-amber-50 text-gray-800" : "border-gray-200 bg-white text-gray-400 hover:border-[#c9a84c]"}`}
+                >
+                  <svg className="w-4 h-4 text-[#c9a84c] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /></svg>
+                  <span className="flex-1 text-right mr-2 truncate text-xs">{fromLabel || "اختر من الخريطة"}</span>
+                </button>
+              </Field>
+            </div>
+          </div>
         </Section>
       )}
 
@@ -768,7 +1010,61 @@ export default function NewTripFormPage() {
         </div>
       </Section>
 
-      <button className="w-full bg-[#4a4644] text-white font-bold py-4 rounded-2xl hover:bg-black transition-colors text-sm">إنشاء رحله</button>
+      {/* مسؤولو المبيعات */}
+      <Section title="مسؤولو المبيعات" sub="اختر السيلز المسؤولين عن هذه الرحلة"
+        icon={<svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2h5M12 12a4 4 0 100-8 4 4 0 000 8z" /></svg>}>
+        <div className="space-y-2">
+          {salesList.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-2">جاري التحميل...</p>
+          )}
+          {salesList.map(sale => {
+            const isSelected = selectedSales.includes(sale.id);
+            return (
+              <button
+                key={sale.id}
+                type="button"
+                onClick={() => toggleSale(sale.id)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-right ${isSelected ? "border-[#c9a84c] bg-amber-50" : "border-gray-200 bg-white hover:border-[#c9a84c]"}`}
+              >
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? "border-[#c9a84c] bg-[#c9a84c]" : "border-gray-300"}`}>
+                  {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <div className="flex-1 px-3 text-right">
+                  <p className="text-sm font-medium text-gray-800">{sale.name}</p>
+                  <p className="text-xs text-gray-400">{sale.phone}</p>
+                </div>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isSelected ? "bg-[#c9a84c] text-white" : "bg-gray-100 text-gray-500"}`}>
+                  {sale.name?.charAt(0)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* Error message */}
+      {submitError && (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3 text-right">
+          {submitError}
+        </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting}
+        className="w-full bg-[#4a4644] text-white font-bold py-4 rounded-2xl hover:bg-black transition-colors text-sm disabled:opacity-60"
+      >
+        {submitting ? "جاري الإنشاء..." : "إنشاء رحله"}
+      </button>
+
+      {/* Map Picker Modal */}
+      {mapTarget && (
+        <MapPickerModal
+          title={mapTarget === "from" ? "اختر نقطة الانطلاق" : "اختر نقطة الوصول"}
+          onClose={() => setMapTarget(null)}
+          onConfirm={handleMapConfirm}
+        />
+      )}
 
       {/* Modals */}
       {showAddPassenger && (

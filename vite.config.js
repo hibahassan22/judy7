@@ -10,7 +10,6 @@ export default defineConfig({
         target: 'https://drivo1.elmoroj.com',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path.replace(/^\/api/, '/api')
       }
     }
   }

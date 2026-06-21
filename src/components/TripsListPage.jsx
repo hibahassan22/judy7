@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Plus,
     RefreshCw,
@@ -19,33 +19,59 @@ import {
     XCircle,
     PauseCircle
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+
+const API_BASE = "/api";
 
 // ==========================================
 // 1. مودال إضافة دفعة جديدة
 // ==========================================
-const AddPaymentModal = ({ isOpen, onClose }) => {
+const AddPaymentModal = ({ isOpen, onClose, tripId }) => {
     if (!isOpen) return null;
 
     const [formData, setFormData] = useState({
-        amount: '',
-        date: '',
-        fromAccount: '',
-        toAccount: '',
-        transferMethod: 'bank',
-        proof: null,
-        notes: ''
+        amount_paid: '',
+        transfer_method: 'تحويل بنكي',
+        account_number: '',
+        recipient_account: '',
+        commission_transfer_date: '',
+        payment_note: '',
+        transfer_image: null,
     });
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState(null);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        console.log('Payment Data:', formData);
-        onClose();
+        setSubmitting(true);
+        setError(null);
+        try {
+            const fd = new FormData();
+            fd.append('amount_paid', formData.amount_paid);
+            fd.append('transfer_method', formData.transfer_method);
+            fd.append('account_number', formData.account_number);
+            fd.append('recipient_account', formData.recipient_account);
+            fd.append('commission_transfer_date', formData.commission_transfer_date);
+            fd.append('payment_note', formData.payment_note);
+            if (formData.transfer_image) fd.append('transfer_image', formData.transfer_image);
+
+            const res = await fetch(`${API_BASE}/trips/${tripId}/add-payment`, {
+                method: 'POST',
+                body: fd,
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.message || `خطأ ${res.status}`);
+            onClose();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-sans" dir="rtl">
-            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between border-b border-gray-100 p-4">
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
                         <X className="w-5 h-5" />
@@ -55,48 +81,21 @@ const AddPaymentModal = ({ isOpen, onClose }) => {
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-5 flex-1 overflow-y-auto space-y-4">
+                    {error && (
+                        <div className="bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl px-3 py-2 text-right">
+                            {error}
+                        </div>
+                    )}
+
                     <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-gray-500">المبلغ</label>
+                        <label className="text-xs font-medium text-gray-500">المبلغ المدفوع *</label>
                         <input
                             type="number"
                             placeholder="ادخل المبلغ"
-                            value={formData.amount}
-                            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                            value={formData.amount_paid}
+                            onChange={(e) => setFormData({ ...formData, amount_paid: e.target.value })}
                             className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
                             required
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-gray-500">التاريخ</label>
-                        <input
-                            type="date"
-                            value={formData.date}
-                            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
-                            required
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-gray-500">الحساب المحول منه</label>
-                        <input
-                            type="text"
-                            placeholder="ادخل اسم الحساب"
-                            value={formData.fromAccount}
-                            onChange={(e) => setFormData({ ...formData, fromAccount: e.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-gray-500">الحساب المحول إليه</label>
-                        <input
-                            type="text"
-                            placeholder="ادخل اسم الحساب"
-                            value={formData.toAccount}
-                            onChange={(e) => setFormData({ ...formData, toAccount: e.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
                         />
                     </div>
 
@@ -104,52 +103,78 @@ const AddPaymentModal = ({ isOpen, onClose }) => {
                         <label className="text-xs font-medium text-gray-500">طريقة التحويل</label>
                         <div className="relative">
                             <select
-                                value={formData.transferMethod}
-                                onChange={(e) => setFormData({ ...formData, transferMethod: e.target.value })}
+                                value={formData.transfer_method}
+                                onChange={(e) => setFormData({ ...formData, transfer_method: e.target.value })}
                                 className="w-full appearance-none rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-600 focus:border-amber-500 focus:outline-none bg-white"
                             >
-                                <option value="bank">البنك</option>
-                                <option value="cash">نقدي</option>
-                                <option value="wallet">محفظة إلكترونية</option>
+                                <option value="تحويل بنكي">تحويل بنكي</option>
+                                <option value="كاش">كاش</option>
+                                <option value="محفظة إلكترونية">محفظة إلكترونية</option>
                             </select>
                             <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
-                                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                                </svg>
+                                <svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                             </div>
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-medium text-gray-500">رقم الحساب</label>
+                            <input
+                                type="text"
+                                placeholder="123456"
+                                value={formData.account_number}
+                                onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-medium text-gray-500">حساب المستلم</label>
+                            <input
+                                type="text"
+                                placeholder="78910111"
+                                value={formData.recipient_account}
+                                onChange={(e) => setFormData({ ...formData, recipient_account: e.target.value })}
+                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none"
+                            />
+                        </div>
+                    </div>
+
                     <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-gray-500">إثبات التحويل</label>
+                        <label className="text-xs font-medium text-gray-500">تاريخ التحويل</label>
+                        <input
+                            type="date"
+                            value={formData.commission_transfer_date}
+                            onChange={(e) => setFormData({ ...formData, commission_transfer_date: e.target.value })}
+                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 focus:border-amber-500 focus:outline-none"
+                        />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-gray-500">صورة التحويل</label>
                         <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors">
                             <Upload className="w-4 h-4 text-gray-400" />
-                            <span>اختر الملف</span>
-                            <input
-                                type="file"
-                                className="hidden"
-                                onChange={(e) => setFormData({ ...formData, proof: e.target.files[0] })}
-                            />
+                            <span>{formData.transfer_image ? formData.transfer_image.name : "اختر الملف"}</span>
+                            <input type="file" className="hidden" accept="image/*"
+                                onChange={(e) => setFormData({ ...formData, transfer_image: e.target.files[0] })} />
                         </label>
-                        {formData.proof && (
-                            <span className="text-xs text-emerald-600 text-left truncate">{formData.proof.name}</span>
-                        )}
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-medium text-gray-500">ملاحظة</label>
                         <textarea
-                            rows="3"
+                            rows="2"
                             placeholder="أضف ملاحظة (اختياري)"
-                            value={formData.notes}
-                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none transition-colors resize-none"
-                        ></textarea>
+                            value={formData.payment_note}
+                            onChange={(e) => setFormData({ ...formData, payment_note: e.target.value })}
+                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:border-amber-500 focus:outline-none resize-none"
+                        />
                     </div>
 
                     <div className="pt-2">
-                        <button type="submit" className="w-full rounded-xl bg-[#4a4746] py-3 text-sm font-medium text-white hover:bg-black transition-colors shadow-sm">
-                            حفظ
+                        <button type="submit" disabled={submitting}
+                            className="w-full rounded-xl bg-[#4a4746] py-3 text-sm font-medium text-white hover:bg-black transition-colors shadow-sm disabled:opacity-60">
+                            {submitting ? "جاري الحفظ..." : "حفظ"}
                         </button>
                     </div>
                 </form>
@@ -368,18 +393,39 @@ const EditTripModal = ({ isOpen, onClose, tripData, onSave }) => {
 // 4. المكون الأساسي لصفحة سجل الرحلات
 // ==========================================
 const TripsLog = () => {
+    const location = useLocation();
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+    const [selectedTripId, setSelectedTripId] = useState(null);
 
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedTrip, setSelectedTrip] = useState(null);
 
-    const [trips, setTrips] = useState([
-        { id: '#35', status: 'مكتملة', statusColor: 'bg-green-600', subStatus: 'غير مسجل', type: 'اشتراك', client: 'سارة احمد', price: '570 ر.س', from: 'حي الملقا', to: 'جامعة الملك سعود', city: 'جدة', driver: 'احمد علي', customerName: 'فاطمة احمد', phone: '0568710388', dateFrom: '19-6-2025', dateTo: '1-7-2025', commission: '200 ر.س', remaining: '300 ر.س' },
-        { id: '#36', status: 'قيد التنفيذ', statusColor: 'bg-blue-600', subStatus: null, type: 'اشتراك', client: 'سارة احمد', price: '570 ر.س', from: 'حي الملقا', to: 'جامعة الملك سعود', city: 'جدة', driver: 'احمد علي', customerName: 'فاطمة احمد', phone: '0568710388', dateFrom: '19-6-2025', dateTo: '1-7-2025', commission: '200 ر.س', remaining: '300 ر.س' },
-        { id: '#37', status: 'ملغية', statusColor: 'bg-red-600', subStatus: 'تم رفع شكوى', subStatusColor: 'bg-red-700', type: 'اشتراك', client: 'سارة احمد', price: '570 ر.س', from: 'حي الملقا', to: 'جامعة الملك سعود', city: 'جدة', driver: 'احمد علي', customerName: 'فاطمة احمد', phone: '0568710388', dateFrom: '19-6-2025', dateTo: '1-7-2025', commission: '200 ر.س', remaining: '300 ر.س' },
-        { id: '#38', status: 'موقوفة', statusColor: 'bg-gray-400', subStatus: null, type: 'اشتراك', client: 'سارة احمد', price: '570 ر.س', from: 'حي الملقا', to: 'جامعة الملك سعود', city: 'جدة', driver: 'احمد علي', customerName: 'فاطمة احمد', phone: '0568710388', dateFrom: '19-6-2025', dateTo: '1-7-2025', commission: '200 ر.س', remaining: '300 ر.س' },
-    ]);
+    const [trips, setTrips] = useState([]);
+    const [tripsLoading, setTripsLoading] = useState(false);
+    const [tripsError, setTripsError] = useState(null);
+
+    // جلب الرحلات من API
+    const fetchTrips = async () => {
+        setTripsLoading(true);
+        setTripsError(null);
+        try {
+            const res = await fetch(`${API_BASE}/trips`);
+            if (!res.ok) throw new Error("فشل تحميل الرحلات");
+            const json = await res.json();
+            const list = Array.isArray(json) ? json : (json.value ?? json.data ?? []);
+            setTrips(list);
+        } catch (err) {
+            setTripsError(err.message);
+        } finally {
+            setTripsLoading(false);
+        }
+    };
+
+    // أعد الـ fetch كل ما تُفتح الصفحة
+    useEffect(() => {
+        fetchTrips();
+    }, [location.key]);
 
     const handleEditClick = (trip) => {
         setSelectedTrip(trip);
@@ -453,10 +499,18 @@ const TripsLog = () => {
         <div className="w-full font-sans text-right" dir="rtl">
             {/* عنوان الصفحة وأزرار التحكم */}
             <div className="bg-white rounded-2xl shadow-sm px-5 py-4 flex justify-between items-center mb-5">
+                <div className="text-right">
+                    <h1 className="text-xl font-bold text-[#bd8b2a]">سجل الرحلات</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">إدارة ومتابعة الرحلات بجميع تفاصيلها</p>
+                </div>
                 <div className="flex gap-2">
-                    <button className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-                        <SlidersHorizontal className="w-3.5 h-3.5 text-gray-500" />
-                        تصفية
+                    <button
+                        onClick={fetchTrips}
+                        disabled={tripsLoading}
+                        className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 text-gray-500 ${tripsLoading ? 'animate-spin' : ''}`} />
+                        تحديث
                     </button>
                     <button
                         onClick={handlePrint}
@@ -466,10 +520,7 @@ const TripsLog = () => {
                         تصدير
                     </button>
                 </div>
-                <div className="text-right">
-                    <h1 className="text-xl font-bold text-[#bd8b2a]">سجل الرحلات</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">إدارة ومتابعة الرحلات بجميع تفاصيلها</p>
-                </div>
+
             </div>
 
             {/* البانر الإعلاني */}
@@ -479,7 +530,7 @@ const TripsLog = () => {
                 {/* النص على اليمين */}
                 <div className="z-10 text-white w-full pr-12 text-right">
                     <h2 className="text-5xl font-bold flex items-center gap-3">
-                        120 <span className="text-3xl font-medium pt-1">رحلة</span>
+                        {trips.length} <span className="text-3xl font-medium pt-1">رحلة</span>
                     </h2>
                 </div>
 
@@ -495,73 +546,102 @@ const TripsLog = () => {
 
             {/* قائمة كروت الرحلات */}
             <div className="space-y-4">
-                {trips.map((trip, index) => {
-                    const cleanTripId = trip.id.replace('#', '');
+
+                {/* Loading */}
+                {tripsLoading && (
+                    <div className="flex items-center justify-center py-12 text-gray-400 text-sm gap-2">
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                        جاري تحميل الرحلات...
+                    </div>
+                )}
+
+                {/* Error */}
+                {tripsError && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3 text-right flex items-center justify-between">
+                        <button onClick={fetchTrips} className="text-xs underline text-red-500">إعادة المحاولة</button>
+                        <span>{tripsError}</span>
+                    </div>
+                )}
+
+                {/* Empty */}
+                {!tripsLoading && !tripsError && trips.length === 0 && (
+                    <p className="text-center text-gray-400 text-sm py-12">لا توجد رحلات بعد</p>
+                )}
+
+                {/* Trip cards */}
+                {!tripsLoading && trips.map((trip, index) => {
+                    // map API fields → display values
+                    const tripId   = `#${trip.id}`;
+                    const status   = trip.trip_status ?? '—';
+                    const statusColorMap = { 'تم': 'bg-green-600', 'قيد التنفيذ': 'bg-blue-600', 'ملغية': 'bg-red-600', 'معلقة': 'bg-amber-600', 'موقوفة': 'bg-gray-400' };
+                    const statusColor = statusColorMap[status] ?? 'bg-gray-500';
+                    const tripType  = trip.trip_type ?? '—';
+                    const driverName = trip.driver ? `${trip.driver.name} ${trip.driver.last_name ?? ''}`.trim() : '—';
+                    const totalPrice = trip.total_price ? `${Number(trip.total_price).toLocaleString('ar-SA')} ر.س` : '—';
+                    const commission = trip.commission_amount ? `${Number(trip.commission_amount).toLocaleString('ar-SA')} ر.س` : '—';
+                    const amountPaid = trip.amount_paid ? `${Number(trip.amount_paid).toLocaleString('ar-SA')} ر.س` : '—';
+                    const tripDate  = trip.trip_date ? new Date(trip.trip_date).toLocaleDateString('ar-SA') : '—';
+                    const salesNames = trip.sales?.map(s => s.name).join('، ') ?? '—';
+                    const region = trip.region ?? '—';
 
                     return (
-                        <div key={index} className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row overflow-hidden">
+                        <div key={trip.id ?? index} className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row overflow-hidden">
                             <div className="p-5 flex-1 flex flex-col justify-between gap-4">
                                 <div className="flex flex-wrap justify-between items-center gap-2">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-base font-bold text-gray-800">{trip.id}</span>
-                                        <span className={`${trip.statusColor} text-white text-xs px-2.5 py-0.5 rounded-full font-medium`}>
-                                            {trip.status}
+                                        <span className="text-base font-bold text-gray-800">{tripId}</span>
+                                        <span className={`${statusColor} text-white text-xs px-2.5 py-0.5 rounded-full font-medium`}>
+                                            {status}
                                         </span>
-                                        {trip.subStatus && (
-                                            <span className={`${trip.subStatusColor || 'bg-amber-600/10 text-amber-700'} text-xs px-2.5 py-0.5 rounded-full font-medium`}>
-                                                {trip.subStatus}
-                                            </span>
-                                        )}
                                         <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-0.5 rounded-md">
-                                            {trip.type}
-                                        </span>
-                                        <span className="text-xs text-gray-500 flex items-center gap-1 mr-2">
-                                            <User className="w-3.5 h-3.5 text-gray-400" /> {trip.client}
+                                            {tripType}
                                         </span>
                                     </div>
-                                    <div className="text-amber-700 font-bold text-xl">{trip.price}</div>
+                                    <div className="text-amber-700 font-bold text-xl">{totalPrice}</div>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-600 mt-2">
                                     <div className="space-y-2">
                                         <div className="flex items-center gap-1.5">
                                             <MapPin className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                                            <span className="font-semibold text-gray-800">{trip.from}</span>
-                                            <span className="text-gray-400">←</span>
-                                            <span className="text-gray-500">{trip.to}</span>
+                                            <span className="font-semibold text-gray-800">{trip.from ?? '—'}</span>
+                                            {trip.to && <><span className="text-gray-400">←</span><span className="text-gray-500">{trip.to}</span></>}
                                         </div>
                                         <div className="flex items-center gap-2 pr-5">
-                                            <span className="bg-amber-50 text-amber-700 text-[10px] px-1.5 py-0.5 rounded">مدينة</span>
-                                            <span>{trip.city}</span>
+                                            <span className="bg-amber-50 text-amber-700 text-[10px] px-1.5 py-0.5 rounded">المنطقة</span>
+                                            <span>{region}</span>
                                         </div>
                                         <div className="pr-5 text-gray-500">
-                                            السائق: <span className="font-medium text-gray-800">{trip.driver}</span>
+                                            السائق: <span className="font-medium text-gray-800">{driverName}</span>
                                         </div>
                                     </div>
 
                                     <div className="space-y-1.5 md:border-r md:border-l border-gray-100 md:px-4">
                                         <div className="flex items-center gap-1.5 text-gray-500">
                                             <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                                            <span>{trip.dateFrom}</span>
-                                            <span className="text-gray-400">←</span>
-                                            <span>{trip.dateTo}</span>
+                                            <span>{tripDate}</span>
                                         </div>
                                         <div className="text-gray-500">
-                                            العميل: <span className="font-medium text-gray-800">{trip.customerName}</span>
+                                            هاتف العميل: <span className="font-medium text-gray-800">{trip.customer_phone ?? '—'}</span>
                                         </div>
-                                        <div className="flex items-center gap-1 text-gray-400">
-                                            <Phone className="w-3.5 h-3.5" />
-                                            <span>{trip.phone}</span>
+                                        <div className="text-gray-500">
+                                            السيلز: <span className="font-medium text-gray-800">{salesNames}</span>
                                         </div>
                                     </div>
 
                                     <div className="flex flex-col justify-center space-y-1.5 md:mr-auto md:text-left text-right min-w-[120px]">
                                         <div className="text-gray-500">
-                                            العمولة: <span className="font-semibold text-amber-600">{trip.commission}</span>
+                                            العمولة: <span className="font-semibold text-amber-600">{commission}</span>
                                         </div>
                                         <div className="text-gray-500">
-                                            المتبقي: <span className="font-semibold text-amber-600">{trip.remaining}</span>
+                                            المدفوع: <span className="font-semibold text-amber-600">{amountPaid}</span>
                                         </div>
+                                        {trip.transfer_method && (
+                                            <div className="text-gray-400">{trip.transfer_method}</div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -570,7 +650,7 @@ const TripsLog = () => {
                                 <span className="text-xs font-semibold text-gray-400 mb-1 block">الإجراءات</span>
 
                                 <button
-                                    onClick={() => setIsPaymentModalOpen(true)}
+                                    onClick={() => { setSelectedTripId(trip.id); setIsPaymentModalOpen(true); }}
                                     className="flex items-center justify-center gap-1 bg-[#474747] text-white text-xs py-1.5 px-3 rounded hover:bg-black transition-colors"
                                 >
                                     <Plus className="w-3.5 h-3.5" /> اضافة دفعه
@@ -584,7 +664,7 @@ const TripsLog = () => {
                                 </button>
 
                                 <Link
-                                    to={`/trips/${cleanTripId}`}
+                                    to={`/trips/${trip.id}`}
                                     className="flex items-center justify-center gap-1 bg-white border border-gray-300 text-gray-700 text-xs py-1.5 px-3 rounded hover:bg-gray-50 transition-colors no-underline"
                                 >
                                     <Eye className="w-3.5 h-3.5 text-gray-400" /> تفاصيل
@@ -602,24 +682,11 @@ const TripsLog = () => {
                 })}
             </div>
 
-            {/* أرقام الصفحات */}
-            <div className="flex justify-center items-center gap-1 mt-8 text-xs text-gray-600" dir="ltr">
-                <button className="p-1.5 bg-white border border-gray-200 rounded hover:bg-gray-50">
-                    <ChevronLeft className="w-4 h-4 text-gray-400" />
-                </button>
-                <button className="w-7 h-7 bg-gradient-to-l from-[#b88121] to-[#dca43b] text-white font-bold rounded shadow-sm">1</button>
-                <button className="w-7 h-7 bg-white border border-gray-200 rounded hover:bg-gray-50">2</button>
-                <button className="w-7 h-7 bg-white border border-gray-200 rounded hover:bg-gray-50">3</button>
-                <span className="px-1 text-gray-400">...</span>
-                <button className="w-7 h-7 bg-white border border-gray-200 rounded hover:bg-gray-50">30</button>
-                <button className="p-1.5 bg-white border border-gray-200 rounded hover:bg-gray-50">
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
-                </button>
-            </div>
 
             <AddPaymentModal
                 isOpen={isPaymentModalOpen}
-                onClose={() => setIsPaymentModalOpen(false)}
+                onClose={() => { setIsPaymentModalOpen(false); setSelectedTripId(null); }}
+                tripId={selectedTripId}
             />
 
             <ChangeStatusModal
